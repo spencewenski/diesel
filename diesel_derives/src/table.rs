@@ -223,13 +223,13 @@ fn generate_kind_specific_impls(
             #[doc(hidden)]
             pub use self::composite as table;
 
-            impl diesel::query_source::QueryRelation for composite {
-                type AllColumns = AllColumns;
-
-                fn all_columns() -> Self::AllColumns {
-                    all_columns
-                }
-            }
+            // impl diesel::query_source::QueryRelation for composite {
+            //     type AllColumns = AllColumns;
+            //
+            //     fn all_columns() -> Self::AllColumns {
+            //         all_columns
+            //     }
+            // }
 
             impl diesel::internal::table_macro::Sealed for composite {}
             // impl diesel::query_source::View for view {}
@@ -308,6 +308,8 @@ impl QuerySourceMacroKind {
         match self {
             QuerySourceMacroKind::Table => "table",
             QuerySourceMacroKind::View => "view",
+            // Todo: Specialize the `composite!` macro further to remove any unnecessary impls
+            // Todo: How to handle types that match the fields of a table?
             QuerySourceMacroKind::CompositeType => "composite",
         }
     }
