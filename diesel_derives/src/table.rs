@@ -219,6 +219,21 @@ fn generate_kind_specific_impls(
             impl diesel::internal::table_macro::Sealed for view {}
             impl diesel::query_source::View for view {}
         },
+        QuerySourceMacroKind::CompositeType => quote::quote! {
+            #[doc(hidden)]
+            pub use self::composite as table;
+
+            impl diesel::query_source::QueryRelation for composite {
+                type AllColumns = AllColumns;
+
+                fn all_columns() -> Self::AllColumns {
+                    all_columns
+                }
+            }
+
+            impl diesel::internal::table_macro::Sealed for composite {}
+            // impl diesel::query_source::View for view {}
+        },
     }
 }
 
@@ -285,6 +300,7 @@ fn collect_cfg_groups<'a>(
 pub enum QuerySourceMacroKind {
     Table,
     View,
+    CompositeType,
 }
 
 impl QuerySourceMacroKind {
@@ -292,6 +308,7 @@ impl QuerySourceMacroKind {
         match self {
             QuerySourceMacroKind::Table => "table",
             QuerySourceMacroKind::View => "view",
+            QuerySourceMacroKind::CompositeType => "composite",
         }
     }
 }
@@ -412,6 +429,9 @@ fn expand(input: TableDecl, kind: QuerySourceMacroKind) -> TokenStream {
     let query_source_ident = match kind {
         QuerySourceMacroKind::Table => syn::Ident::new("table", input.view.table_name.span()),
         QuerySourceMacroKind::View => syn::Ident::new("view", input.view.table_name.span()),
+        QuerySourceMacroKind::CompositeType => {
+            syn::Ident::new("composite", input.view.table_name.span())
+        }
     };
 
     let column_defs = input
@@ -1122,22 +1142,35 @@ fn expand_column_def(
         }
     });
 
-    let table_specific_impls = if matches!(kind, QuerySourceMacroKind::Table) {
-        quote::quote! {
-            #(#cfg_attrs)*
-            impl diesel::query_source::Column for #column_name {
-                type Table = super::table;
+    let table_specific_impls = match kind {
+        QuerySourceMacroKind::Table => {
+            quote::quote! {
+                #(#cfg_attrs)*
+                impl diesel::query_source::Column for #column_name {
+                    type Table = super::table;
 
-                const NAME: &'static str = #sql_name;
+                    const NAME: &'static str = #sql_name;
+                }
             }
         }
-    } else {
-        quote::quote! {
-            #(#cfg_attrs)*
-            impl diesel::query_source::QueryRelationField for #column_name {
-                type QueryRelation = super::view;
+        QuerySourceMacroKind::View => {
+            quote::quote! {
+                #(#cfg_attrs)*
+                impl diesel::query_source::QueryRelationField for #column_name {
+                    type QueryRelation = super::view;
 
-                const NAME: &'static str = #sql_name;
+                    const NAME: &'static str = #sql_name;
+                }
+            }
+        }
+        QuerySourceMacroKind::CompositeType => {
+            quote::quote! {
+                #(#cfg_attrs)*
+                impl diesel::query_source::QueryRelationField for #column_name {
+                    type QueryRelation = super::composite;
+
+                    const NAME: &'static str = #sql_name;
+                }
             }
         }
     };

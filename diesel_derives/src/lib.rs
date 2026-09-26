@@ -1734,6 +1734,15 @@ fn view_proc_inner(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream 
     self::table::query_source_macro(input, self::table::QuerySourceMacroKind::View)
 }
 
+#[proc_macro]
+pub fn composite_proc(input: TokenStream) -> TokenStream {
+    composite_proc_inner(input.into()).into()
+}
+
+fn composite_proc_inner(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    self::table::query_source_macro(input, self::table::QuerySourceMacroKind::CompositeType)
+}
+
 /// This derives implements `diesel::Connection` and related traits for an enum of
 /// connections to different databases.
 ///
