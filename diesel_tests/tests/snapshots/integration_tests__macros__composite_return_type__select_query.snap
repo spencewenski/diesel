@@ -1,0 +1,5 @@
+---
+source: diesel_tests/tests/macros.rs
+expression: "diesel::debug_query::<Pg, _>(&query)"
+---
+SELECT foo() -- binds: []
