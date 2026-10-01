@@ -19,6 +19,8 @@ mod ord;
 
 pub use self::fold::Foldable;
 pub use self::ord::SqlOrd;
+use diesel::expression::ValidGrouping;
+use diesel::{Expression, SelectableExpression};
 
 use crate::backend::Backend;
 use crate::expression::TypedExpressionType;
@@ -708,6 +710,12 @@ pub trait SqlType: 'static {
 
     #[doc(hidden)]
     const IS_ARRAY: bool = false;
+}
+
+pub trait CompositeType: SqlType + Sized {
+    // Alternatively, create a new trait, e.g. `CompositeField`, instead of reusing `SelectableExpression`
+    type AllFields: SelectableExpression<Self> + ValidGrouping<()>;
+    fn all_fields() -> Self::AllFields;
 }
 
 /// A marker trait for SQL types representing database side enums
