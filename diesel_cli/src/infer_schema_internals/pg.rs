@@ -47,6 +47,20 @@ mod information_schema {
             domain_schema -> Nullable<VarChar>,
         }
     }
+
+    table! {
+        information_schema.attributes (udt_schema, udt_name, attribute_name) {
+            udt_schema -> VarChar,
+            udt_name -> VarChar,
+            attribute_name -> VarChar,
+            ordinal_position -> Integer,
+            #[sql_name = "is_nullable"]
+            __is_nullable -> VarChar,
+            attribute_udt_schema -> VarChar,
+            attribute_udt_name -> VarChar,
+            character_maximum_length -> Nullable<Integer>,
+        }
+    }
 }
 
 table! {
@@ -302,12 +316,80 @@ pub fn load_enum_variants(
     if r.is_empty() { Ok(None) } else { Ok(Some(r)) }
 }
 
+pub fn load_composite_types(conn: &mut PgConnection) -> QueryResult<Vec<CompositeType>> {
+    use crate::infer_schema_internals::pg::information_schema::attributes;
+    use crate::infer_schema_internals::pg::information_schema::attributes::dsl::*;
+
+    #[derive(Queryable, Selectable, PartialEq, Debug, Clone)]
+    #[diesel(table_name = attributes)]
+    #[diesel(check_for_backend(diesel::pg::Pg))]
+    pub struct CompositeTypeAttribute {
+        udt_schema: String,
+        udt_name: String,
+        attribute_name: String,
+        ordinal_position: i32,
+        __is_nullable: String,
+        attribute_udt_schema: String,
+        attribute_udt_name: String,
+        character_maximum_length: Option<i32>,
+    }
+
+    let default_schema = Pg::default_schema(conn)?;
+
+    let attrs = attributes::table
+        // Todo: allow filtering to a specific schema, or by regex
+        .select(CompositeTypeAttribute::as_select())
+        .order_by((udt_schema, udt_name, ordinal_position))
+        .load::<CompositeTypeAttribute>(conn)?;
+
+    let fields = attrs.into_iter().map(|attr| {
+        (
+            (attr.udt_schema, attr.udt_name),
+            CompositeTypeField {
+                order: attr.ordinal_position,
+                sql_name: attr.attribute_name,
+                type_name: attr.attribute_udt_name,
+                type_schema: attr.attribute_udt_schema,
+                // Todo: Postgres doesn't allow adding constraints, e.g. `NOT NULL`, on composite
+                //  type fields, so this will always be true. Is there a way to allow overriding
+                //  this behavior, either globally or per-field, if a dev know that a field will
+                //  always be non-null?
+                nullable: attr.__is_nullable == "YES",
+                max_length: attr.character_maximum_length,
+            },
+        )
+    });
+
+    // Assumes the fields are sorted by their schema, name, and ordinal.
+    let types = fields.fold(
+        Vec::<CompositeType>::new(),
+        |mut accum, ((schema, name), field)| {
+            let mut ty = match accum.last() {
+                Some(ty) if ty.schema == schema && ty.name == name => accum.pop(),
+                _ => None,
+            }
+            .unwrap_or(CompositeType {
+                schema,
+                name,
+                fields: vec![],
+            });
+
+            ty.fields.push(field);
+            accum.push(ty);
+            accum
+        },
+    );
+
+    Ok(types)
+}
+
 #[cfg(test)]
 mod test {
     extern crate dotenvy;
 
     use self::dotenvy::dotenv;
     use super::*;
+    use insta::assert_debug_snapshot;
     use std::env;
 
     fn connection() -> PgConnection {
@@ -611,5 +693,25 @@ mod test {
 
         let variants = super::load_enum_variants(&mut connection, "non_existing", None).unwrap();
         assert!(variants.is_none());
+    }
+
+    #[test]
+    fn load_composite_types() {
+        let mut connection = connection();
+
+        diesel::sql_query("CREATE TYPE test1 AS (a INTEGER, b TEXT)")
+            .execute(&mut connection)
+            .unwrap();
+        diesel::sql_query("CREATE TYPE test2 AS (c REAL, b BOOLEAN)")
+            .execute(&mut connection)
+            .unwrap();
+
+        let types = super::load_composite_types(&mut connection)
+            .unwrap()
+            .into_iter()
+            .filter(|ty| ty.name == "test1" || ty.name == "test2")
+            .collect::<Vec<CompositeType>>();
+        assert!(!types.is_empty());
+        assert_debug_snapshot!(types);
     }
 }

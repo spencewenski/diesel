@@ -2,6 +2,8 @@ use diesel_table_macro_syntax::{ColumnDef, TableDecl};
 use proc_macro2::{Span, TokenStream};
 use syn::{Ident, parse_quote};
 
+pub(crate) mod composite_type;
+
 const DEFAULT_PRIMARY_KEY_NAME: &str = "id";
 
 fn cfg_attributes(attrs: &[syn::Attribute]) -> Vec<&syn::Attribute> {

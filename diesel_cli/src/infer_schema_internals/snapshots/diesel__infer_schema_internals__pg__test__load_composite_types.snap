@@ -1,0 +1,50 @@
+---
+source: diesel_cli/src/infer_schema_internals/pg.rs
+expression: types
+---
+[
+    CompositeType {
+        schema: "public",
+        name: "test1",
+        fields: [
+            CompositeTypeField {
+                order: 1,
+                sql_name: "a",
+                type_name: "int4",
+                type_schema: "pg_catalog",
+                nullable: true,
+                max_length: None,
+            },
+            CompositeTypeField {
+                order: 2,
+                sql_name: "b",
+                type_name: "text",
+                type_schema: "pg_catalog",
+                nullable: true,
+                max_length: None,
+            },
+        ],
+    },
+    CompositeType {
+        schema: "public",
+        name: "test2",
+        fields: [
+            CompositeTypeField {
+                order: 1,
+                sql_name: "c",
+                type_name: "float4",
+                type_schema: "pg_catalog",
+                nullable: true,
+                max_length: None,
+            },
+            CompositeTypeField {
+                order: 2,
+                sql_name: "b",
+                type_name: "bool",
+                type_schema: "pg_catalog",
+                nullable: true,
+                max_length: None,
+            },
+        ],
+    },
+]

@@ -314,3 +314,35 @@ impl EnumVariant {
         n.to_pascal_case()
     }
 }
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct CompositeType {
+    pub schema: String,
+    pub name: String,
+    pub fields: Vec<CompositeTypeField>,
+}
+
+// Todo: Align with `ColumnType`?
+#[derive(PartialEq, Debug, Clone)]
+pub struct CompositeTypeField {
+    pub order: i32,
+    pub sql_name: String,
+    pub type_name: String,
+    // Todo: make optional?
+    pub type_schema: String,
+    pub nullable: bool,
+    // Todo: `ColumnType` uses `u64`
+    pub max_length: Option<i32>,
+}
+
+impl CompositeTypeField {
+    // Todo: This is a duplicate of the `EnumVariant#rust_name` impl
+    pub fn rust_name(&self) -> String {
+        let n = if super::inference::is_reserved_name(&self.sql_name) {
+            Cow::Owned(format!("{}_", self.sql_name))
+        } else {
+            Cow::Borrowed(&self.sql_name)
+        };
+        n.to_pascal_case()
+    }
+}

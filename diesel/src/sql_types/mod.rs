@@ -19,6 +19,8 @@ mod ord;
 
 pub use self::fold::Foldable;
 pub use self::ord::SqlOrd;
+use diesel::SelectableExpression;
+use diesel::expression::ValidGrouping;
 
 use crate::backend::Backend;
 use crate::expression::TypedExpressionType;
@@ -710,6 +712,12 @@ pub trait SqlType: 'static {
     const IS_ARRAY: bool = false;
 }
 
+// Todo: make private/sealed
+pub trait CompositeType: SqlType + Sealed {
+    type AllFields: SelectableExpression<Self> + ValidGrouping<()>;
+    fn all_fields() -> Self::AllFields;
+}
+
 /// A marker trait for SQL types representing database side enums
 ///
 /// This trait describes how an enum should be mapped to the underlying database storage type
@@ -857,6 +865,7 @@ impl BoolOrNullableBool for Nullable<Bool> {}
 
 #[doc(inline)]
 pub use crate::expression::expression_types::Untyped;
+use crate::query_source::private::Sealed;
 
 pub(crate) mod helper {
     use super::{MaybeNullableType, OneIsNullable, SingleValue};

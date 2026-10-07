@@ -18,10 +18,13 @@ INSERT INTO colors (red, green,blue, color_name) VALUES (205, 198, 115, 'khaki3'
 INSERT INTO colors (red, green,blue, color_name) VALUES (118, 238, 198, 'aquamarine');
 
 -- Make a composite type in SQL
-CREATE TYPE gray_type AS (intensity FLOAT4, suggestion TEXT);
+CREATE TYPE gray_type AS (id INTEGER, intensity FLOAT4, suggestion TEXT);
+
+CREATE TYPE nested_type AS (nested gray_type, foo INTEGER[]);
 
 -- Converts an color to a grey value and suggest a name.
 CREATE FUNCTION color2grey(
+    id INTEGER,
     red    INTEGER,
     green  INTEGER,
     blue   INTEGER
@@ -43,13 +46,14 @@ BEGIN
         END IF;
     END IF;
     suggestion := 'grey' || percentage::TEXT;
-    rec := ROW(intensity,suggestion);
+    rec := ROW(id,intensity,suggestion);
     RETURN rec;
 END
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Converts an color to a gray value and suggest a name (same but 'e' -> 'a').
 CREATE FUNCTION color2gray(
+    id INTEGER,
     red    INTEGER,
     green  INTEGER,
     blue   INTEGER
@@ -71,7 +75,7 @@ BEGIN
         END IF;
     END IF;
     suggestion := 'gray' || percentage::TEXT;
-    rec := ROW(intensity,suggestion);
+    rec := ROW(id,intensity,suggestion);
     RETURN rec;
 END
 $$ LANGUAGE plpgsql IMMUTABLE;
