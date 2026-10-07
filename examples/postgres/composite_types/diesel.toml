@@ -4,6 +4,11 @@
 [print_schema]
 file = "src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
+custom_enum_derives = ["PartialEq"]
+composite_types = {
+    generate = true,
+    non_null_fields = ["composite_with_enum_field\\.a"]
+}
 
 [migrations_directory]
 dir = "migrations"

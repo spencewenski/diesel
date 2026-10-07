@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::str::FromStr;
 
-use super::{TableData, ViewData, table_data::TableName};
+use super::{CompositeTypeData, TableData, ViewData, table_data::TableName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnInformation {
@@ -229,6 +229,7 @@ pub enum SupportedQueryRelationStructures {
 pub enum QueryRelationData {
     View(ViewData),
     Table(TableData),
+    CompositeType(CompositeTypeData),
 }
 
 impl QueryRelationData {
@@ -236,6 +237,7 @@ impl QueryRelationData {
         match &self {
             Self::Table(table) => &table.name,
             Self::View(view) => &view.name,
+            Self::CompositeType(ty) => &ty.name,
         }
     }
 
@@ -243,6 +245,7 @@ impl QueryRelationData {
         match self {
             Self::Table(table) => &table.column_data,
             Self::View(view) => &view.column_data,
+            Self::CompositeType(ty) => &ty.field_data,
         }
     }
 
@@ -250,13 +253,15 @@ impl QueryRelationData {
         match self {
             Self::Table(table) => &table.comment,
             Self::View(view) => &view.comment,
+            Self::CompositeType(ty) => &ty.comment,
         }
     }
 
     pub fn relation_type(&self) -> &'static str {
         match self {
-            QueryRelationData::View(_view_data) => "view",
-            QueryRelationData::Table(_table_data) => "table",
+            Self::View(_) => "view",
+            Self::Table(_) => "table",
+            Self::CompositeType(_) => "composite_type",
         }
     }
 }

@@ -1,6 +1,7 @@
-use super::TableName;
 use super::data_structures::*;
 use super::information_schema::DefaultSchema;
+use super::{CompositeTypeData, TableName, rust_name_for_sql_name};
+use crate::config::CompositeTypeConfig;
 use crate::print_schema::ColumnSorting;
 use diesel::connection::DefaultLoadingMode;
 use diesel::dsl::AsExprOf;
@@ -47,6 +48,20 @@ mod information_schema {
             domain_schema -> Nullable<VarChar>,
         }
     }
+
+    table! {
+        information_schema.attributes (udt_schema, udt_name, attribute_name) {
+            udt_schema -> VarChar,
+            udt_name -> VarChar,
+            attribute_name -> VarChar,
+            ordinal_position -> Integer,
+            #[sql_name = "is_nullable"]
+            __is_nullable -> VarChar,
+            attribute_udt_schema -> VarChar,
+            attribute_udt_name -> VarChar,
+            character_maximum_length -> Nullable<Integer>,
+        }
+    }
 }
 
 table! {
@@ -66,12 +81,20 @@ table! {
     }
 }
 
+table! {
+    pg_namespace(oid) {
+        oid -> Oid,
+        nspname -> Text,
+    }
+}
+
 allow_tables_to_appear_in_same_query!(pg_type, pg_enum);
+allow_tables_to_appear_in_same_query!(information_schema::attributes, pg_type, pg_namespace);
 
 #[tracing::instrument]
 pub fn determine_column_type(
     attr: &ColumnInformation,
-    default_schema: String,
+    default_schema: &str,
 ) -> Result<ColumnType, crate::errors::Error> {
     let is_array = attr.type_name.starts_with('_');
     let tpe = if is_array {
@@ -97,7 +120,7 @@ pub fn determine_column_type(
 
     Ok(ColumnType {
         schema: attr.type_schema.as_ref().and_then(|s| {
-            if s == &default_schema {
+            if s == default_schema {
                 None
             } else {
                 Some(s.clone())
@@ -194,17 +217,7 @@ pub fn get_table_data(
                 .map(|name| (name, row.domain_schema))
                 .unwrap_or((row.type_name, row.type_schema));
 
-            let max_length = row
-                .max_length
-                .map(|n| {
-                    n.try_into().map_err(|e| {
-                        diesel::result::Error::DeserializationError(
-                            format!("Max column length can't be converted to u64: {e} (got: {n})")
-                                .into(),
-                        )
-                    })
-                })
-                .transpose()?;
+            let max_length = row.max_length.map(max_len_to_u64).transpose()?;
 
             Ok(ColumnInformation::new(
                 row.column_name,
@@ -217,6 +230,14 @@ pub fn get_table_data(
             ))
         })
         .collect()
+}
+
+fn max_len_to_u64(len: i32) -> Result<u64, diesel::result::Error> {
+    len.try_into().map_err(|e| {
+        diesel::result::Error::DeserializationError(
+            format!("Max column length can't be converted to u64: {e} (got: {len})").into(),
+        )
+    })
 }
 
 pub fn get_table_comment(
@@ -316,12 +337,149 @@ pub fn get_type_comment(
         .get_result::<Option<String>>(conn)
 }
 
+pub fn load_composite_types(
+    conn: &mut PgConnection,
+    config: &CompositeTypeConfig,
+) -> Result<Vec<QueryRelationData>, crate::errors::Error> {
+    use crate::infer_schema_internals::pg::information_schema::attributes;
+    use crate::infer_schema_internals::pg::pg_namespace;
+    use crate::infer_schema_internals::pg::pg_type;
+
+    #[derive(Queryable, Selectable, PartialEq, Debug, Clone)]
+    #[diesel(table_name = attributes)]
+    #[diesel(check_for_backend(diesel::pg::Pg))]
+    pub struct CompositeTypeAttribute {
+        udt_schema: String,
+        udt_name: String,
+        attribute_name: String,
+        ordinal_position: i32,
+        __is_nullable: String,
+        attribute_udt_schema: String,
+        attribute_udt_name: String,
+        character_maximum_length: Option<i32>,
+    }
+
+    let default_schema = Pg::default_schema(conn)?;
+
+    // Load all composite type attributes from the `information_schema.attributes` table. Join with
+    // the `pg_type` and `pg_namespace` tables in order to determine the correct oid to use with the
+    // `obj_description` function in order to fetch comments set on the composite types.
+    let attrs = attributes::table
+        .inner_join(pg_type::table.on(attributes::udt_name.eq(pg_type::typname)))
+        .inner_join(pg_namespace::table.on(pg_type::typnamespace.eq(pg_namespace::oid)))
+        .filter(attributes::udt_schema.eq(pg_namespace::nspname))
+        .select((
+            CompositeTypeAttribute::as_select(),
+            obj_description(pg_type::oid, "pg_type"),
+        ))
+        .order_by((
+            attributes::udt_schema,
+            attributes::udt_name,
+            attributes::ordinal_position,
+        ))
+        .load::<(CompositeTypeAttribute, Option<String>)>(conn)?;
+
+    // Create a `ColumnDefinition` for each attribute
+    let attrs = attrs
+        .into_iter()
+        .map(|(attr, composite_type_comment)| {
+            let max_length = attr
+                .character_maximum_length
+                .map(max_len_to_u64)
+                .transpose()?;
+
+            let attr_information = ColumnInformation::new(
+                attr.attribute_name,
+                attr.attribute_udt_name,
+                Some(attr.attribute_udt_schema),
+                attr.__is_nullable == "YES",
+                max_length,
+                None,
+                false,
+            );
+
+            let attr_definition = ColumnDefinition {
+                ty: determine_column_type(&attr_information, &default_schema)?,
+                rust_name: rust_name_for_sql_name(&attr_information.column_name, None),
+                sql_name: attr_information.column_name,
+                comment: attr_information.comment,
+                auto_increment: attr_information.auto_increment,
+            };
+
+            Ok((
+                // Pass along properties that belong to the composite type. These are used to
+                // initialize the `CompositeTypeData` below.
+                (attr.udt_schema, attr.udt_name, composite_type_comment),
+                attr_definition,
+            ))
+        })
+        .collect::<Result<Vec<_>, crate::errors::Error>>()?;
+
+    let composite_types = attrs.into_iter().fold(
+        Vec::<CompositeTypeData>::new(),
+        |mut accum, ((schema, name, composite_type_comment), field)| {
+            // If the last `CompositeTypeData` in the result has the same schema+name as the current
+            // schema+name, then pop it from the result so we can add the current attribute to its
+            // `field_data`. Otherwise, create a new `CompositeTypeData`.
+            // Assumes the attributes are ordered by schema, name, and ordinal.
+            let mut ty = match accum.last() {
+                Some(ty)
+                    if let Some(ty_schema) = ty.name.schema.as_deref()
+                        && ty_schema == schema
+                        && ty.name.sql_name == name =>
+                {
+                    accum.pop()
+                }
+                _ => None,
+            }
+            .unwrap_or_else(|| CompositeTypeData {
+                name: TableName::new(name, schema),
+                comment: composite_type_comment,
+                field_data: vec![],
+            });
+
+            ty.field_data.push(field);
+            accum.push(ty);
+            accum
+        },
+    );
+
+    let composite_types = composite_types
+        .into_iter()
+        .map(|mut ty| {
+            ty.name.strip_schema_if_matches(&default_schema);
+            ty
+        })
+        .map(|ty| (ty.name.full_sql_name(), ty))
+        .filter(|(full_sql_name, _)| {
+            config.include.is_empty() || config.include.iter().any(|r| r.is_match(full_sql_name))
+        })
+        .filter(|(full_sql_name, _)| !config.exclude.iter().any(|r| r.is_match(full_sql_name)))
+        .map(|(full_sql_name, mut ty)| {
+            ty.field_data.iter_mut().for_each(|field| {
+                let full_field_name = format!("{}.{}", full_sql_name, field.sql_name);
+                let is_nullable = !config
+                    .non_null_fields
+                    .iter()
+                    .any(|r| r.is_match(&full_field_name));
+                field.ty.is_nullable &= is_nullable;
+            });
+            (full_sql_name, ty)
+        })
+        .map(|(_, ty)| QueryRelationData::CompositeType(ty))
+        .collect();
+
+    Ok(composite_types)
+}
+
 #[cfg(test)]
 mod test {
     extern crate dotenvy;
 
     use self::dotenvy::dotenv;
     use super::*;
+    use insta::assert_debug_snapshot;
+    use regex::Regex;
     use std::env;
 
     fn connection() -> PgConnection {
@@ -666,5 +824,55 @@ mod test {
 
         let variants = super::load_enum_variants(&mut connection, "non_existing", None).unwrap();
         assert!(variants.is_none());
+    }
+
+    #[test]
+    fn load_composite_types() {
+        let mut connection = connection();
+
+        let config = CompositeTypeConfig {
+            // Only print the types we create below
+            include: vec![serde_regex::Serde(
+                Regex::new("\\b(test_type)\\b$").unwrap(),
+            )],
+            // Ignore types in the `ignore_me` schema
+            exclude: vec![serde_regex::Serde(Regex::new("^ignore_me\\..*").unwrap())],
+            // Override fields of `test_schema.test_type` to be not nullable
+            non_null_fields: vec![serde_regex::Serde(
+                Regex::new("test_schema\\.test_type\\..*").unwrap(),
+            )],
+            ..Default::default()
+        };
+
+        diesel::sql_query("CREATE TYPE test_type AS (a INTEGER, b TEXT)")
+            .execute(&mut connection)
+            .unwrap();
+        diesel::sql_query("CREATE schema test_schema;")
+            .execute(&mut connection)
+            .unwrap();
+        diesel::sql_query("CREATE TYPE test_schema.test_type AS (c REAL, d BOOLEAN)")
+            .execute(&mut connection)
+            .unwrap();
+        diesel::sql_query("COMMENT ON TYPE test_type IS 'test_type comment'")
+            .execute(&mut connection)
+            .unwrap();
+        diesel::sql_query(
+            "COMMENT ON TYPE test_schema.test_type IS 'test_schema.test_type comment'",
+        )
+        .execute(&mut connection)
+        .unwrap();
+        diesel::sql_query("CREATE schema ignore_me;")
+            .execute(&mut connection)
+            .unwrap();
+        diesel::sql_query("CREATE TYPE ignore_me.test_type AS (a INTEGER, b TEXT)")
+            .execute(&mut connection)
+            .unwrap();
+
+        let types = super::load_composite_types(&mut connection, &config)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>();
+        assert!(!types.is_empty());
+        assert_debug_snapshot!(types);
     }
 }

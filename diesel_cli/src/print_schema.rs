@@ -3,6 +3,7 @@ use crate::database::{Backend, InferConnection};
 use crate::infer_schema_internals::*;
 use clap::{ArgAction, ArgMatches, Args, FromArgMatches};
 use diesel::QueryResult;
+use heck::ToUpperCamelCase;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -32,6 +33,10 @@ pub struct PrintSchemaArgs {
     pub include_views_indices: Option<Vec<usize>>,
     pub experimental_infer_nullable_for_views_indices: Option<Vec<usize>>,
     pub custom_rust_enum_type_derives_indices: Option<Vec<usize>>,
+    pub composite_types_generate_indices: Option<Vec<usize>>,
+    pub composite_types_include_indices: Option<Vec<usize>>,
+    pub composite_types_exclude_indices: Option<Vec<usize>>,
+    pub composite_types_non_null_fields_indices: Option<Vec<usize>>,
 }
 
 impl PrintSchemaArgs {
@@ -55,6 +60,10 @@ impl PrintSchemaArgs {
     const EXPERIMENTAL_INFER_NULLABLE_FOR_VIEWS: &'static str =
         "EXPERIMENTAL_INFER_NULLABLE_FOR_VIEWS";
     const CUSTOM_RUST_ENUM_TYPE_DERIVES: &'static str = "CUSTOM_RUST_ENUM_TYPE_DERIVES";
+    const COMPOSITE_TYPES_GENERATE: &'static str = "COMPOSITE_TYPES_GENERATE";
+    const COMPOSITE_TYPES_INCLUDE: &'static str = "COMPOSITE_TYPES_INCLUDE";
+    const COMPOSITE_TYPES_EXCLUDE: &'static str = "COMPOSITE_TYPES_EXCLUDE";
+    const COMPOSITE_TYPES_NON_NULL_FIELDS: &'static str = "COMPOSITE_TYPES_NON_NULL_FIELDS";
 
     fn populate_indices(&mut self, matches: &ArgMatches) {
         let Self {
@@ -76,6 +85,10 @@ impl PrintSchemaArgs {
             include_views_indices,
             experimental_infer_nullable_for_views_indices,
             custom_rust_enum_type_derives_indices,
+            composite_types_generate_indices,
+            composite_types_include_indices,
+            composite_types_exclude_indices,
+            composite_types_non_null_fields_indices,
         } = self;
         let mapping = [
             (schema_indices, Self::SCHEMA),
@@ -110,6 +123,22 @@ impl PrintSchemaArgs {
                 custom_rust_enum_type_derives_indices,
                 Self::CUSTOM_RUST_ENUM_TYPE_DERIVES,
             ),
+            (
+                composite_types_generate_indices,
+                Self::COMPOSITE_TYPES_GENERATE,
+            ),
+            (
+                composite_types_include_indices,
+                Self::COMPOSITE_TYPES_INCLUDE,
+            ),
+            (
+                composite_types_exclude_indices,
+                Self::COMPOSITE_TYPES_EXCLUDE,
+            ),
+            (
+                composite_types_non_null_fields_indices,
+                Self::COMPOSITE_TYPES_NON_NULL_FIELDS,
+            ),
         ];
 
         for (indices, key) in mapping {
@@ -140,6 +169,10 @@ impl FromArgMatches for PrintSchemaArgs {
             include_views_indices: None,
             experimental_infer_nullable_for_views_indices: None,
             custom_rust_enum_type_derives_indices: None,
+            composite_types_generate_indices: None,
+            composite_types_include_indices: None,
+            composite_types_exclude_indices: None,
+            composite_types_non_null_fields_indices: None,
         };
         out.populate_indices(matches);
         Ok(out)
@@ -324,6 +357,41 @@ pub struct InnerPrintSchemaArgs {
     /// Generate Rust enum type definitions for sql side enum types
     #[arg(long = "no-generate-rust-enum-types", action = ArgAction::SetTrue)]
     pub no_generate_rust_enum_types: bool,
+    /// Whether to generate `custom_type!` macro definitions
+    #[arg(
+        id = PrintSchemaArgs::COMPOSITE_TYPES_GENERATE,
+        long = "generate-composite-types",
+        action = ArgAction::Append,
+        num_args = 0..=1,
+        // default_value = "false",
+        default_missing_value = "true",
+        value_parser = clap::value_parser!(bool),
+    )]
+    pub composite_types_generate: Vec<bool>,
+    /// Regexes of composite types to include
+    #[arg(
+        id = PrintSchemaArgs::COMPOSITE_TYPES_INCLUDE,
+        long = "include-composite-types",
+        num_args = 1..,
+        action = clap::ArgAction::Append,
+    )]
+    pub composite_types_include: Vec<String>,
+    /// Regexes of composite types to exclude
+    #[arg(
+        id = PrintSchemaArgs::COMPOSITE_TYPES_EXCLUDE,
+        long = "exclude-composite-types",
+        num_args = 1..,
+        action = clap::ArgAction::Append,
+    )]
+    pub composite_types_exclude: Vec<String>,
+    /// Regexes of composite type fields to override as non-null
+    #[arg(
+        id = PrintSchemaArgs::COMPOSITE_TYPES_NON_NULL_FIELDS,
+        long = "non-null-composite-type-fields",
+        num_args = 1..,
+        action = clap::ArgAction::Append,
+    )]
+    pub composite_types_non_null_fields: Vec<String>,
 }
 
 #[tracing::instrument]
@@ -689,6 +757,26 @@ pub(crate) fn load_custom_types(
     })
 }
 
+pub(crate) fn load_composite_types(
+    connection: &mut InferConnection,
+    config: &config::PrintSchema,
+) -> Result<Vec<QueryRelationData>, crate::errors::Error> {
+    if !config.composite_types.generate {
+        return Ok(Default::default());
+    }
+    match connection {
+        #[cfg(feature = "postgres")]
+        InferConnection::Pg(pg_connection) => {
+            crate::infer_schema_internals::pg::load_composite_types(
+                pg_connection,
+                &config.composite_types,
+            )
+        }
+        #[cfg(any(feature = "mysql", feature = "mariadb", feature = "sqlite"))]
+        _ => Ok(Default::default()),
+    }
+}
+
 #[cfg(any(feature = "mysql", feature = "mariadb"))]
 pub(crate) fn mysql_enum_name(table_name: &str, column_name: &str, ty: &ColumnType) -> String {
     use heck::ToUpperCamelCase;
@@ -826,14 +914,26 @@ pub fn output_schema(
     let resolver = SchemaResolverImpl::new(connection, table_names, config, unfiltered_table_names);
     let data = resolver.resolve_query_relations()?;
 
+    let composite_types = load_composite_types(connection, config)?;
+    let num_tables = data.len();
+    // Add composite types to the tables/views in `data`. This allows `load_custom_types` to
+    // resolve any custom types referenced by composite types.
+    let mut data: Vec<QueryRelationData> = data.into_iter().chain(composite_types).collect();
+    // `columns_custom_types` will contain custom types referenced by tables, views, and composite types.
+    // Entries for composite types are located at the end after all tables and views.
     let columns_custom_types = if config.generate_missing_sql_type_definitions() {
         Some(load_custom_types(connection, &data, config)?)
     } else {
         None
     };
 
+    // Remove composite types from `data` so we can generate the `composite_type!` macro invocations
+    // inside the `sql_types` module along with other custom types.
+    let composite_types = data.split_off(num_tables);
+
     let definitions = QueryRelationDefinitions {
         data,
+        composite_types,
         fk_constraints_for_joinable: foreign_keys_for_joinable,
         fk_constraints_for_allow_tables: foreign_keys_for_allow_tables,
         with_docs: config.with_docs,
@@ -844,10 +944,7 @@ pub fn output_schema(
             types_overrides_sorted: t.custom_type_list,
             enum_variants: t.enum_variant_list,
             type_comments: t.type_comment_list,
-            with_docs: match config.with_docs {
-                DocConfig::DatabaseCommentsFallbackToAutoGeneratedDocComment => true,
-                DocConfig::OnlyDatabaseComments | DocConfig::NoDocComments => false,
-            },
+            with_docs: config.with_docs,
             rust_enum_with_docs: config.with_docs,
             sql_type_derives: config.custom_type_derives(),
             rust_type_derives: config.custom_rust_types_derives(),
@@ -869,6 +966,8 @@ pub fn output_schema(
                 "{}",
                 CustomTypesForTablesForDisplay {
                     custom_types: custom_types_for_tables,
+                    composite_types: &definitions.composite_types,
+                    import_types: definitions.import_types,
                     tables: &definitions.data
                 }
             )?;
@@ -1027,7 +1126,7 @@ struct CustomTypesForTables {
     // Comments of the enum types, for their Rust enums: `load_custom_types` loads none under
     // `DocConfig::NoDocComments` or when no Rust enum is generated
     type_comments: HashMap<(String, Option<String>), String>,
-    with_docs: bool,
+    with_docs: DocConfig,
     // Unlike the SQL types, the Rust enums can carry a database comment, so they follow the whole
     // `DocConfig` rather than `with_docs`
     rust_enum_with_docs: DocConfig,
@@ -1036,8 +1135,19 @@ struct CustomTypesForTables {
     generate_rust_enums: bool,
 }
 
+impl CustomTypesForTables {
+    fn with_docs(&self) -> bool {
+        match self.with_docs {
+            DocConfig::DatabaseCommentsFallbackToAutoGeneratedDocComment => true,
+            DocConfig::OnlyDatabaseComments | DocConfig::NoDocComments => false,
+        }
+    }
+}
+
 pub struct CustomTypesForTablesForDisplay<'a> {
     custom_types: &'a CustomTypesForTables,
+    composite_types: &'a [QueryRelationData],
+    import_types: Option<&'a [String]>,
     tables: &'a [QueryRelationData],
 }
 
@@ -1050,11 +1160,24 @@ impl Display for CustomTypesForTablesForDisplay<'_> {
                 let _ = &self.tables;
                 let types_to_generate =
                     pg_types_to_generate(&self.custom_types.types_overrides_sorted);
-                if types_to_generate.is_empty() {
+
+                // Do not generate structs for composite types. Instead, we will generate
+                // `composite_type!` macro invocations.
+                let types_to_generate: Vec<_> = types_to_generate
+                    .into_iter()
+                    .filter(|ty| {
+                        !self.composite_types.iter().any(|c| {
+                            let table_name = c.table_name();
+                            table_name.schema == ty.schema && table_name.sql_name == ty.sql_name
+                        })
+                    })
+                    .collect();
+
+                if types_to_generate.is_empty() && self.composite_types.is_empty() {
                     return Ok(());
                 }
 
-                if self.custom_types.with_docs {
+                if self.custom_types.with_docs() {
                     writeln!(f, "/// A module containing custom SQL type definitions")?;
                     writeln!(f, "///")?;
                     writeln!(f, "/// (Automatically generated by Diesel.)")?;
@@ -1087,7 +1210,7 @@ impl Display for CustomTypesForTablesForDisplay<'_> {
                     if idx != 0 {
                         writeln!(out)?;
                     }
-                    if self.custom_types.with_docs {
+                    if self.custom_types.with_docs() {
                         if let Some(ref schema) = ct.schema {
                             writeln!(
                                 out,
@@ -1133,12 +1256,49 @@ impl Display for CustomTypesForTablesForDisplay<'_> {
                     writeln!(out, "pub struct {};", ct.rust_name)?;
                 }
 
+                let composite_type_definitions =
+                    self.composite_types
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, composite_type)| QueryRelationDefinition {
+                            table: composite_type,
+                            with_docs: self.custom_types.with_docs,
+                            import_types: self.import_types,
+                            // Custom type overrides for composite types are in the
+                            // `types_overrides_sorted` list after the entries for all the
+                            // tables/views.
+                            custom_type_overrides: Some(
+                                self.custom_types.types_overrides_sorted[idx + self.tables.len()]
+                                    .as_slice(),
+                            ),
+                        });
+                let mut is_first = types_to_generate.is_empty();
+                for composite_type_definition in composite_type_definitions {
+                    if is_first {
+                        is_first = false;
+                    } else {
+                        writeln!(f)?;
+                    }
+
+                    writeln!(f, "{composite_type_definition}")?;
+                    writeln!(f)?;
+
+                    let sql_name = &composite_type_definition.table.table_name().sql_name;
+                    writeln!(f, "#[allow(dead_code)]")?;
+                    writeln!(
+                        f,
+                        "pub type {} = {}::composite_type;",
+                        sql_name.to_upper_camel_case(),
+                        sql_name
+                    )?;
+                }
+
                 writeln!(f, "}}\n")?;
                 rust_enum_module(
                     f,
                     rust_types,
                     self.custom_types.generate_rust_enums,
-                    self.custom_types.with_docs,
+                    self.custom_types.with_docs(),
                 )?;
 
                 Ok(())
@@ -1204,7 +1364,6 @@ impl<'a> CustomTypesForTablesForDisplay<'a> {
         let _ = &self.custom_types.type_comments;
         let CustomTypesForTables {
             types_overrides_sorted,
-            with_docs,
             sql_type_derives: derives,
             ..
         } = self.custom_types;
@@ -1223,7 +1382,7 @@ impl<'a> CustomTypesForTablesForDisplay<'a> {
         }
         types_to_generate.sort_by_key(|(column_type, _, _)| column_type.rust_name.as_str());
 
-        if *with_docs {
+        if self.custom_types.with_docs() {
             writeln!(f, "/// A module containing custom SQL type definitions")?;
             writeln!(f, "///")?;
             writeln!(f, "/// (Automatically generated by Diesel.)")?;
@@ -1251,7 +1410,7 @@ impl<'a> CustomTypesForTablesForDisplay<'a> {
                 writeln!(out)?;
             }
 
-            if self.custom_types.with_docs {
+            if self.custom_types.with_docs() {
                 writeln!(
                     out,
                     "/// The `{}` SQL type for the\n\
@@ -1294,7 +1453,7 @@ impl<'a> CustomTypesForTablesForDisplay<'a> {
             f,
             rust_types,
             self.custom_types.generate_rust_enums,
-            *with_docs,
+            self.custom_types.with_docs(),
         )?;
         Ok(())
     }
@@ -1337,6 +1496,8 @@ impl Display for ModuleDefinition<'_> {
                     "{}",
                     CustomTypesForTablesForDisplay {
                         custom_types: custom_types_for_tables,
+                        composite_types: &self.1.composite_types,
+                        import_types: self.1.import_types,
                         tables: &self.1.data
                     }
                 )?;
@@ -1350,6 +1511,7 @@ impl Display for ModuleDefinition<'_> {
 
 struct QueryRelationDefinitions<'a> {
     data: Vec<QueryRelationData>,
+    composite_types: Vec<QueryRelationData>,
     fk_constraints_for_joinable: Vec<ForeignKeyConstraint>,
     fk_constraints_for_allow_tables: Vec<ForeignKeyConstraint>,
     with_docs: DocConfig,
@@ -1405,15 +1567,23 @@ impl<'a> Display for QueryRelationDefinitions<'a> {
                 self.data
                     .iter()
                     .filter_map(|t| match t {
-                        QueryRelationData::View(_) => None,
+                        QueryRelationData::View(_) | QueryRelationData::CompositeType(_) => None,
                         QueryRelationData::Table(table_data) => Some(table_data),
                     })
                     .collect(),
                 &self.fk_constraints_for_allow_tables,
             ),
             AllowTablesToAppearInSameQueryConfig::AllTables => {
-                let all_local_tables: Vec<_> =
-                    self.data.iter().map(|table| table.table_name()).collect();
+                let all_local_tables: Vec<_> = self
+                    .data
+                    .iter()
+                    .filter_map(|table| match table {
+                        QueryRelationData::CompositeType(_) => None,
+                        QueryRelationData::Table(_) | QueryRelationData::View(_) => {
+                            Some(table.table_name())
+                        }
+                    })
+                    .collect();
                 if all_local_tables.len() >= 2 {
                     vec![all_local_tables]
                 } else {
@@ -1421,7 +1591,8 @@ impl<'a> Display for QueryRelationDefinitions<'a> {
                         self.data
                             .iter()
                             .filter_map(|t| match t {
-                                QueryRelationData::View(_) => None,
+                                QueryRelationData::View(_)
+                                | QueryRelationData::CompositeType(_) => None,
                                 QueryRelationData::Table(table_data) => Some(table_data),
                             })
                             .collect(),
@@ -1564,6 +1735,7 @@ impl<'a> Display for QueryRelationDefinition<'a> {
         match &self.table {
             QueryRelationData::Table(_) => write!(f, "diesel::table! {{")?,
             QueryRelationData::View(_) => write!(f, "diesel::view! {{")?,
+            QueryRelationData::CompositeType(_) => write!(f, "diesel::composite_type! {{")?,
         }
 
         {
@@ -1592,7 +1764,13 @@ impl<'a> Display for QueryRelationDefinition<'a> {
                         if !has_written_import {
                             writeln!(out, "use diesel::sql_types::*;")?;
                         }
-                        writeln!(out, "use super::sql_types::{};", ct.rust_name)?;
+                        let sql_type_module_path = match &self.table {
+                            QueryRelationData::View(_) | QueryRelationData::Table(_) => {
+                                "super::sql_types"
+                            }
+                            QueryRelationData::CompositeType(_) => "super",
+                        };
+                        writeln!(out, "use {}::{};", sql_type_module_path, ct.rust_name)?;
                         has_written_import = true;
                     }
                 }

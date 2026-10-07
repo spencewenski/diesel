@@ -207,7 +207,7 @@ fn determine_column_type(
         InferConnection::Pg(ref mut conn) => {
             use crate::infer_schema_internals::information_schema::DefaultSchema;
 
-            super::pg::determine_column_type(attr, diesel::pg::Pg::default_schema(conn)?)
+            super::pg::determine_column_type(attr, &diesel::pg::Pg::default_schema(conn)?)
         }
         #[cfg(feature = "mysql")]
         InferConnection::Mysql(_) => super::mysql_like::determine_column_type(attr),
