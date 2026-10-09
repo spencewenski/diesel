@@ -225,10 +225,12 @@ pub enum SupportedQueryRelationStructures {
     Table,
 }
 
+// Todo: Generate `composite_type!` macros
 #[derive(Debug, Clone)]
 pub enum QueryRelationData {
     View(ViewData),
     Table(TableData),
+    CompositeType(ViewData),
 }
 
 impl QueryRelationData {
@@ -236,6 +238,7 @@ impl QueryRelationData {
         match &self {
             Self::Table(table) => &table.name,
             Self::View(view) => &view.name,
+            Self::CompositeType(view) => &view.name,
         }
     }
 
@@ -243,6 +246,7 @@ impl QueryRelationData {
         match self {
             Self::Table(table) => &table.column_data,
             Self::View(view) => &view.column_data,
+            Self::CompositeType(view) => &view.column_data,
         }
     }
 
@@ -250,13 +254,15 @@ impl QueryRelationData {
         match self {
             Self::Table(table) => &table.comment,
             Self::View(view) => &view.comment,
+            Self::CompositeType(view) => &view.comment,
         }
     }
 
     pub fn relation_type(&self) -> &'static str {
         match self {
-            QueryRelationData::View(_view_data) => "view",
-            QueryRelationData::Table(_table_data) => "table",
+            Self::View(_) => "view",
+            Self::CompositeType(_) => "composite_type",
+            Self::Table(_) => "table",
         }
     }
 }
@@ -333,16 +339,4 @@ pub struct CompositeTypeField {
     pub nullable: bool,
     // Todo: `ColumnType` uses `u64`
     pub max_length: Option<i32>,
-}
-
-impl CompositeTypeField {
-    // Todo: This is a duplicate of the `EnumVariant#rust_name` impl
-    pub fn rust_name(&self) -> String {
-        let n = if super::inference::is_reserved_name(&self.sql_name) {
-            Cow::Owned(format!("{}_", self.sql_name))
-        } else {
-            Cow::Borrowed(&self.sql_name)
-        };
-        n.to_pascal_case()
-    }
 }

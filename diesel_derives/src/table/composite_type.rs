@@ -9,6 +9,7 @@ use syn::parse_quote;
 
 const KIND_NAME: &str = "composite_type";
 
+// Todo: consolidate with the main `query_source_macro` impl
 pub fn composite_type_macro(tokenstream2: TokenStream) -> TokenStream {
     // include the input in the error output so that rust-analyzer is happy
     match syn::parse2::<ViewDecl>(tokenstream2.clone()) {

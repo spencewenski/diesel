@@ -566,6 +566,7 @@ fn join_string(mut acc: String, el: &String) -> String {
 pub(crate) struct CustomTypeInfos {
     pub(crate) custom_type_list: Vec<Vec<Option<ColumnType>>>,
     pub(crate) enum_variant_list: HashMap<(String, Option<String>), Vec<EnumVariant>>,
+    pub(crate) composite_types: Vec<CompositeType>,
 }
 
 pub(crate) fn load_custom_types(
@@ -668,9 +669,17 @@ pub(crate) fn load_custom_types(
         _ => HashMap::new(),
     };
 
+    let composite_types = match connection {
+        InferConnection::Pg(pg_connection) => {
+            crate::infer_schema_internals::pg::load_composite_types(pg_connection)?
+        }
+        _ => Default::default(),
+    };
+
     Ok(CustomTypeInfos {
         custom_type_list: custom_types,
         enum_variant_list: enum_variants,
+        composite_types,
     })
 }
 
@@ -835,6 +844,7 @@ pub fn output_schema(
             sql_type_derives: config.custom_type_derives(),
             rust_type_derives: config.custom_rust_types_derives(),
             generate_rust_enums: config.generate_rust_enum_definitions(),
+            composite_types: t.composite_types,
         }),
         import_types: config.import_types(),
         local_safe_tables: &local_safe_tables,
@@ -995,6 +1005,7 @@ struct CustomTypesForTables {
     sql_type_derives: BTreeSet<String>,
     rust_type_derives: BTreeSet<String>,
     generate_rust_enums: bool,
+    composite_types: Vec<CompositeType>,
 }
 
 pub struct CustomTypesForTablesForDisplay<'a> {
@@ -1002,6 +1013,7 @@ pub struct CustomTypesForTablesForDisplay<'a> {
     tables: &'a [QueryRelationData],
 }
 
+// Todo: If a type is a composite type, then generate a type alias to the `composite_type!` instead.
 #[allow(clippy::print_in_format_impl)]
 impl Display for CustomTypesForTablesForDisplay<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -1342,7 +1354,7 @@ impl<'a> Display for QueryRelationDefinitions<'a> {
                 self.data
                     .iter()
                     .filter_map(|t| match t {
-                        QueryRelationData::View(_) => None,
+                        QueryRelationData::View(_) | QueryRelationData::CompositeType(_) => None,
                         QueryRelationData::Table(table_data) => Some(table_data),
                     })
                     .collect(),
@@ -1358,7 +1370,8 @@ impl<'a> Display for QueryRelationDefinitions<'a> {
                         self.data
                             .iter()
                             .filter_map(|t| match t {
-                                QueryRelationData::View(_) => None,
+                                QueryRelationData::View(_)
+                                | QueryRelationData::CompositeType(_) => None,
                                 QueryRelationData::Table(table_data) => Some(table_data),
                             })
                             .collect(),
@@ -1501,6 +1514,7 @@ impl<'a> Display for QueryRelationDefinition<'a> {
         match &self.table {
             QueryRelationData::Table(_) => write!(f, "diesel::table! {{")?,
             QueryRelationData::View(_) => write!(f, "diesel::view! {{")?,
+            QueryRelationData::CompositeType(_) => write!(f, "diesel::composite_type! {{")?,
         }
 
         {
