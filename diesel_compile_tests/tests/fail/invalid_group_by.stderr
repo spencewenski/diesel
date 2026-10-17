@@ -75,7 +75,7 @@ LL |         .select(user_alias.field(users::id))
    |
    = help: the trait `ValidGrouping<posts::columns::id>` is not implemented for `AliasedField<user1, users::columns::id>`
 help: the following other types implement trait `ValidGrouping<GroupByClause>`
-  --> DIESEL/diesel/diesel/src/query_source/aliasing/aliased_field.rs
+  --> ROOT/diesel/src/query_source/aliasing/aliased_field.rs
    |
 LL | / impl<S, C> ValidGrouping<()> for AliasedField<S, C>
 LL | | where
@@ -90,6 +90,14 @@ LL | |     C1: QueryRelationField<QueryRelation = S::Target>,
 LL | |     C2: QueryRelationField<QueryRelation = S::Target>,
 LL | |     C2: ValidGrouping<C1, IsAggregate = is_aggregate::Yes>,
    | |___________________________________________________________^ `AliasedField<S, C2>` implements `ValidGrouping<AliasedField<S, C1>>`
+...
+LL | / impl<S, C, GB, From> ValidGrouping<SubselectGroupBy<GB, From>> for AliasedField<S, C>
+LL | | where
+LL | |     S: AliasSource,
+LL | |     C: QueryRelationField<QueryRelation = S::Target>,
+LL | |     From: AppearsInFromClause<Alias<S>>,
+LL | |     From::Count: SubselectFieldGrouping<Self, GB>,
+   | |__________________________________________________^ `AliasedField<S, C>` implements `ValidGrouping<SubselectGroupBy<GB, From>>`
    = note: required for `SelectStatement<_, _, _, _, _, _, _>` to implement `SelectDsl<AliasedField<user1, users::columns::id>>`
 
    
@@ -150,7 +158,7 @@ LL |         .select(user_alias.field(users::id))
    |
    = help: the trait `ValidGrouping<AliasedField<post1, posts::columns::id>>` is not implemented for `AliasedField<user1, users::columns::id>`
 help: the following other types implement trait `ValidGrouping<GroupByClause>`
-  --> DIESEL/diesel/diesel/src/query_source/aliasing/aliased_field.rs
+  --> ROOT/diesel/src/query_source/aliasing/aliased_field.rs
    |
 LL | / impl<S, C> ValidGrouping<()> for AliasedField<S, C>
 LL | | where
@@ -165,6 +173,14 @@ LL | |     C1: QueryRelationField<QueryRelation = S::Target>,
 LL | |     C2: QueryRelationField<QueryRelation = S::Target>,
 LL | |     C2: ValidGrouping<C1, IsAggregate = is_aggregate::Yes>,
    | |___________________________________________________________^ `AliasedField<S, C2>` implements `ValidGrouping<AliasedField<S, C1>>`
+...
+LL | / impl<S, C, GB, From> ValidGrouping<SubselectGroupBy<GB, From>> for AliasedField<S, C>
+LL | | where
+LL | |     S: AliasSource,
+LL | |     C: QueryRelationField<QueryRelation = S::Target>,
+LL | |     From: AppearsInFromClause<Alias<S>>,
+LL | |     From::Count: SubselectFieldGrouping<Self, GB>,
+   | |__________________________________________________^ `AliasedField<S, C>` implements `ValidGrouping<SubselectGroupBy<GB, From>>`
    = note: required for `SelectStatement<_, _, _, _, _, _, _>` to implement `SelectDsl<AliasedField<user1, users::columns::id>>`
 
    

@@ -14,15 +14,23 @@ error[E0277]: the trait bound `dyn BoxableExpression<table, Pg, SqlType = _>: Va
      |
      = help: the trait `ValidGrouping<columns::id>` is not implemented for `dyn BoxableExpression<table, Pg, SqlType = _>`
 help: the following other types implement trait `ValidGrouping<GroupByClause>`
-    --> DIESEL/diesel/diesel/src/expression/mod.rs
+    --> ROOT/diesel/src/expression/mod.rs
      |
 LL | / impl<QS, ST, DB, GB, IsAggregate> ValidGrouping<GB>
 LL | |     for dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + '_
-     | |_________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST>`
+     | |_________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST>` implements `ValidGrouping<GB>`
+...
+LL | / impl<QS, ST, DB, IsAggregate, From> ValidGrouping<subselect::SubselectGroupBy<(), From>>
+LL | |     for dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST> + '_
+     | |_________________________________________________________________________^ `dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST>` implements `ValidGrouping<SubselectGroupBy<(), From>>`
 ...
 LL | / impl<QS, ST, DB, GB, IsAggregate> ValidGrouping<GB>
 LL | |     for dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + Send + Sync + '_
-     | |_______________________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + Send + Sync`
+     | |_______________________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + Send + Sync` implements `ValidGrouping<GB>`
+...
+LL | / impl<QS, ST, DB, IsAggregate, From> ValidGrouping<subselect::SubselectGroupBy<(), From>>
+LL | |     for dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST> + Send + Sync + '_
+     | |_______________________________________________________________________________________^ `dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST> + Send + Sync` implements `ValidGrouping<SubselectGroupBy<(), From>>`
      = note: required for `Box<dyn BoxableExpression<table, Pg, SqlType = _>>` to implement `ValidGrouping<columns::id>`
      = note: required for `SelectStatement<_, _, _, _, _, _, _>` to implement `SelectDsl<Box<_>>`
   
@@ -37,20 +45,28 @@ error[E0277]: the trait bound `dyn BoxableExpression<table, Pg, SqlType = _>: Va
      |
      = help: the trait `ValidGrouping<columns::id>` is not implemented for `dyn BoxableExpression<table, Pg, SqlType = _>`
 help: the following other types implement trait `ValidGrouping<GroupByClause>`
-    --> DIESEL/diesel/diesel/src/expression/mod.rs
+    --> ROOT/diesel/src/expression/mod.rs
      |
 LL | / impl<QS, ST, DB, GB, IsAggregate> ValidGrouping<GB>
 LL | |     for dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + '_
-     | |_________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST>`
+     | |_________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST>` implements `ValidGrouping<GB>`
+...
+LL | / impl<QS, ST, DB, IsAggregate, From> ValidGrouping<subselect::SubselectGroupBy<(), From>>
+LL | |     for dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST> + '_
+     | |_________________________________________________________________________^ `dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST>` implements `ValidGrouping<SubselectGroupBy<(), From>>`
 ...
 LL | / impl<QS, ST, DB, GB, IsAggregate> ValidGrouping<GB>
 LL | |     for dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + Send + Sync + '_
-     | |_______________________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + Send + Sync`
+     | |_______________________________________________________________________________________^ `dyn BoxableExpression<QS, DB, GB, IsAggregate, SqlType = ST> + Send + Sync` implements `ValidGrouping<GB>`
+...
+LL | / impl<QS, ST, DB, IsAggregate, From> ValidGrouping<subselect::SubselectGroupBy<(), From>>
+LL | |     for dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST> + Send + Sync + '_
+     | |_______________________________________________________________________________________^ `dyn BoxableExpression<QS, DB, (), IsAggregate, SqlType = ST> + Send + Sync` implements `ValidGrouping<SubselectGroupBy<(), From>>`
      = note: required for `Box<dyn BoxableExpression<table, Pg, SqlType = _>>` to implement `ValidGrouping<columns::id>`
      = note: required for `SelectStatement<_, _, _, _, _, _, _>` to implement `Query`
      = note: required for `SelectStatement<_, _, _, _, _, _, _>` to implement `LoadQuery<'_, _, i32>`
 note: required by a bound in `load`
-    --> DIESEL/diesel/diesel/src/query_dsl/mod.rs
+    --> ROOT/diesel/src/query_dsl/mod.rs
      |
 LL |     fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
      |        ---- required by a bound in this associated function
@@ -94,7 +110,7 @@ LL |         .select((
     = note: try to either use aggregate functions like `min`/`max`/… for this column or add the column to your `GROUP BY` clause
     = note: also there are clauses like `WHERE` or `RETURNING` that does not accept aggregate expressions at all
 help: `diesel::expression::is_aggregate::Yes` implements trait `MixedAggregates<Other>`
-   --> DIESEL/diesel/diesel/src/expression/mod.rs
+   --> ROOT/diesel/src/expression/mod.rs
     |
 LL |     impl MixedAggregates<Yes> for Yes {
     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MixedAggregates<diesel::expression::is_aggregate::Yes>`
@@ -118,7 +134,7 @@ error[E0277]: mixing aggregate and not aggregate expressions is not allowed in S
      = note: try to either use aggregate functions like `min`/`max`/… for this column or add the column to your `GROUP BY` clause
      = note: also there are clauses like `WHERE` or `RETURNING` that does not accept aggregate expressions at all
 help: `diesel::expression::is_aggregate::Yes` implements trait `MixedAggregates<Other>`
-    --> DIESEL/diesel/diesel/src/expression/mod.rs
+    --> ROOT/diesel/src/expression/mod.rs
      |
  LL |     impl MixedAggregates<Yes> for Yes {
      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MixedAggregates<diesel::expression::is_aggregate::Yes>`
@@ -129,7 +145,7 @@ help: `diesel::expression::is_aggregate::Yes` implements trait `MixedAggregates<
      = note: required for `SelectStatement<FromClause<table>, _>` to implement `Query`
      = note: required for `SelectStatement<FromClause<table>, _>` to implement `LoadQuery<'_, _, (Option<i32>, i32)>`
 note: required by a bound in `load`
-    --> DIESEL/diesel/diesel/src/query_dsl/mod.rs
+    --> ROOT/diesel/src/query_dsl/mod.rs
      |
 LL |     fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
      |        ---- required by a bound in this associated function

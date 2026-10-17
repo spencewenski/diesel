@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use crate::backend::{DieselReserveSpecialization, sql_dialect};
 use crate::dsl::AsExprOf;
-use crate::expression::subselect::ValidSubselect;
+use crate::expression::subselect::{ValidSubselect, ValidSubselectGrouping};
 use crate::expression::*;
 use crate::insertable::Insertable;
 use crate::query_builder::combination_clause::*;
@@ -201,6 +201,14 @@ impl<ST, QS, QS2, DB, GB> ValidSubselect<QS2> for BoxedSelectStatement<'_, ST, Q
 {
 }
 
+// Boxing and every boxed clause method only accept expressions of `QS`, so a boxed
+// statement never references the outer query
+impl<ST, QS, DB, GB, OuterGB> ValidSubselectGrouping<OuterGB>
+    for BoxedSelectStatement<'_, ST, QS, DB, GB>
+{
+    type IsAggregate = is_aggregate::Never;
+}
+
 impl<ST, QS, DB, GB> QueryFragment<DB> for BoxedSelectStatement<'_, ST, QS, DB, GB>
 where
     DB: Backend,
@@ -270,6 +278,26 @@ where
     }
 }
 
+impl<'a, ST, QS, DB, GB> BoxedSelectStatement<'a, ST, QS, DB, GB> {
+    /// The statement with `select` as its select clause and every other clause kept.
+    fn with_select<NewST>(
+        self,
+        select: Box<dyn QueryFragment<DB> + Send + 'a>,
+    ) -> BoxedSelectStatement<'a, NewST, QS, DB, GB> {
+        BoxedSelectStatement {
+            select,
+            from: self.from,
+            distinct: self.distinct,
+            where_clause: self.where_clause,
+            order: self.order,
+            limit_offset: self.limit_offset,
+            group_by: self.group_by,
+            having: self.having,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<'a, ST, QS, DB, Selection, GB> SelectDsl<Selection>
     for BoxedSelectStatement<'a, ST, FromClause<QS>, DB, GB>
 where
@@ -280,17 +308,7 @@ where
     type Output = BoxedSelectStatement<'a, Selection::SqlType, FromClause<QS>, DB, GB>;
 
     fn select(self, selection: Selection) -> Self::Output {
-        BoxedSelectStatement {
-            select: Box::new(selection),
-            from: self.from,
-            distinct: self.distinct,
-            where_clause: self.where_clause,
-            order: self.order,
-            limit_offset: self.limit_offset,
-            group_by: self.group_by,
-            having: self.having,
-            _marker: PhantomData,
-        }
+        self.with_select(Box::new(selection))
     }
 }
 
@@ -304,17 +322,7 @@ where
     type Output = BoxedSelectStatement<'a, Selection::SqlType, NoFromClause, DB, GB>;
 
     fn select(self, selection: Selection) -> Self::Output {
-        BoxedSelectStatement {
-            select: Box::new(selection),
-            from: self.from,
-            distinct: self.distinct,
-            where_clause: self.where_clause,
-            order: self.order,
-            limit_offset: self.limit_offset,
-            group_by: self.group_by,
-            having: self.having,
-            _marker: PhantomData,
-        }
+        self.with_select(Box::new(selection))
     }
 }
 

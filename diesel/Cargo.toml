@@ -1,6 +1,6 @@
 [package]
 name = "diesel"
-version = "2.3.13"
+version = "2.3.14"
 license = "MIT OR Apache-2.0"
 description = "A safe, extensible ORM and Query Builder for PostgreSQL, SQLite, and MySQL"
 readme = "README.md"
@@ -69,7 +69,6 @@ wasm-bindgen-test = "=0.3.78"
 [dev-dependencies]
 cfg-if = "1"
 dotenvy = "0.15"
-ipnetwork = ">=0.12.2, <0.22.0"
 quickcheck = "1.0.3"
 # bit exact json float round trips in tests
 serde_json = { version = "1.0.54", features = ["float_roundtrip"] }
