@@ -97,5 +97,19 @@ Options:
       --no-generate-rust-enum-types
           Generate Rust enum type definitions for sql side enum types
 
+      --generate-composite-types [<COMPOSITE_TYPES_GENERATE>]
+          Whether to generate `custom_type!` macro definitions. Only supported for Postgres DB backends
+          
+          [possible values: true, false]
+
+      --include-composite-types <COMPOSITE_TYPES_INCLUDE>...
+          Regexes of composite types to include
+
+      --exclude-composite-types <COMPOSITE_TYPES_EXCLUDE>...
+          Regexes of composite types to exclude
+
+      --non-null-composite-type-fields <COMPOSITE_TYPES_NON_NULL_FIELDS>...
+          Regexes of composite type fields to override as non-null
+
   -h, --help
           Print help (see a summary with '-h')

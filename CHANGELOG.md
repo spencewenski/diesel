@@ -63,6 +63,7 @@ Increasing the minimal supported Rust version will always be coupled at least wi
 * Added `SqliteConnection::version` to read the version of the linked SQLite library
 * Added `PgConnection::version` to read the version of the connected server
 * Added `CompositeType` marker trait and `composite_type!` macro
+* Added support to the `diesel` CLI to generate `composite_type!` macro invocations in the schema using DB introspection
 
 ### Fixed
 
