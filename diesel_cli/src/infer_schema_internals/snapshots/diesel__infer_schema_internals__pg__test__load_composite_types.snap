@@ -1,0 +1,116 @@
+---
+source: diesel_cli/src/infer_schema_internals/pg.rs
+expression: types
+---
+[
+    CompositeType(
+        CompositeTypeData {
+            name: TableName {
+                sql_name: "test_type",
+                rust_name: "test_type",
+                schema: None,
+                rust_schema: None,
+            },
+            field_data: [
+                ColumnDefinition {
+                    sql_name: "a",
+                    rust_name: "a",
+                    ty: ColumnType {
+                        schema: Some(
+                            "pg_catalog",
+                        ),
+                        rust_name: "Int4",
+                        sql_name: "int4",
+                        is_array: false,
+                        is_nullable: true,
+                        is_unsigned: false,
+                        record: None,
+                        max_length: None,
+                        unmodified_type: "int4",
+                    },
+                    comment: None,
+                    auto_increment: false,
+                },
+                ColumnDefinition {
+                    sql_name: "b",
+                    rust_name: "b",
+                    ty: ColumnType {
+                        schema: Some(
+                            "pg_catalog",
+                        ),
+                        rust_name: "Text",
+                        sql_name: "text",
+                        is_array: false,
+                        is_nullable: true,
+                        is_unsigned: false,
+                        record: None,
+                        max_length: None,
+                        unmodified_type: "text",
+                    },
+                    comment: None,
+                    auto_increment: false,
+                },
+            ],
+            comment: Some(
+                "test_type comment",
+            ),
+        },
+    ),
+    CompositeType(
+        CompositeTypeData {
+            name: TableName {
+                sql_name: "test_type",
+                rust_name: "test_type",
+                schema: Some(
+                    "test_schema",
+                ),
+                rust_schema: Some(
+                    "test_schema",
+                ),
+            },
+            field_data: [
+                ColumnDefinition {
+                    sql_name: "c",
+                    rust_name: "c",
+                    ty: ColumnType {
+                        schema: Some(
+                            "pg_catalog",
+                        ),
+                        rust_name: "Float4",
+                        sql_name: "float4",
+                        is_array: false,
+                        is_nullable: false,
+                        is_unsigned: false,
+                        record: None,
+                        max_length: None,
+                        unmodified_type: "float4",
+                    },
+                    comment: None,
+                    auto_increment: false,
+                },
+                ColumnDefinition {
+                    sql_name: "d",
+                    rust_name: "d",
+                    ty: ColumnType {
+                        schema: Some(
+                            "pg_catalog",
+                        ),
+                        rust_name: "Bool",
+                        sql_name: "bool",
+                        is_array: false,
+                        is_nullable: false,
+                        is_unsigned: false,
+                        record: None,
+                        max_length: None,
+                        unmodified_type: "bool",
+                    },
+                    comment: None,
+                    auto_increment: false,
+                },
+            ],
+            comment: Some(
+                "test_schema.test_type comment",
+            ),
+        },
+    ),
+]

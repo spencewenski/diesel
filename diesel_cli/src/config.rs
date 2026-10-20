@@ -100,11 +100,8 @@ impl Config {
                     .get_mut(key)
                     .ok_or_else(|| crate::errors::Error::NoSchemaKeyFound(key.to_owned()))?;
                 if let Some(table_names_with_indices) = &table_names_with_indices {
-                    let table_names = table_names_with_indices
-                        .range(boundary)
-                        .map(|(_, v)| v.as_str())
-                        .map(|table_name_regex| regex::Regex::new(table_name_regex).map(Into::into))
-                        .collect::<Result<Vec<Regex>, _>>()?;
+                    let table_names =
+                        strings_with_indices_to_regexes(boundary, table_names_with_indices)?;
                     if table_names.is_empty() {
                         continue;
                     }
@@ -204,6 +201,22 @@ impl Config {
                         .as_deref(),
                     &args.inner.experimental_infer_nullable_for_views,
                 );
+                let composite_types_generate_with_indices = get_values_with_indices(
+                    args.composite_types_generate_indices.as_deref(),
+                    &args.inner.composite_types_generate,
+                );
+                let composite_types_include_with_indices = get_values_with_indices(
+                    args.composite_types_include_indices.as_deref(),
+                    &args.inner.composite_types_include,
+                );
+                let composite_types_exclude_with_indices = get_values_with_indices(
+                    args.composite_types_exclude_indices.as_deref(),
+                    &args.inner.composite_types_exclude,
+                );
+                let composite_types_non_null_fields_with_indices = get_values_with_indices(
+                    args.composite_types_non_null_fields_indices.as_deref(),
+                    &args.inner.composite_types_non_null_fields,
+                );
 
                 for (key, boundary) in selected_schema_keys.values().map(|k| k.as_str()).zip(
                     selected_schema_keys
@@ -300,11 +313,7 @@ impl Config {
                     }
 
                     if let Some(excepts) = &except_custom_type_definitions_with_indices {
-                        let rules = excepts
-                            .range(boundary)
-                            .map(|(_, v)| v.as_str())
-                            .map(|rx| regex::Regex::new(rx).map(Into::into))
-                            .collect::<Result<Vec<Regex>, _>>()?;
+                        let rules = strings_with_indices_to_regexes(boundary, excepts)?;
 
                         if !rules.is_empty() {
                             print_schema.except_custom_type_definitions = rules;
@@ -342,6 +351,31 @@ impl Config {
                     {
                         print_schema.sqlite_integer_primary_key_is_bigint =
                             Some(sqlite_integer_primary_key_is_bigint);
+                    }
+
+                    let composite_types_generate = composite_types_generate_with_indices
+                        .as_ref()
+                        .map(|v| v.range(boundary).map(|v| v.1).any(|v| **v));
+                    if let Some(composite_types_generate) = composite_types_generate {
+                        print_schema.composite_types.generate = composite_types_generate;
+                    }
+                    if let Some(include) = &composite_types_include_with_indices {
+                        let rules = strings_with_indices_to_regexes(boundary, include)?;
+                        if !rules.is_empty() {
+                            print_schema.composite_types.include = rules;
+                        }
+                    }
+                    if let Some(exclude) = &composite_types_exclude_with_indices {
+                        let rules = strings_with_indices_to_regexes(boundary, exclude)?;
+                        if !rules.is_empty() {
+                            print_schema.composite_types.exclude = rules;
+                        }
+                    }
+                    if let Some(non_null_fields) = &composite_types_non_null_fields_with_indices {
+                        let rules = strings_with_indices_to_regexes(boundary, non_null_fields)?;
+                        if !rules.is_empty() {
+                            print_schema.composite_types.non_null_fields = rules;
+                        }
                     }
                 }
             }
@@ -391,11 +425,8 @@ impl Config {
             }
 
             if !args.except_custom_type_definitions.is_empty() {
-                config.except_custom_type_definitions = args
-                    .except_custom_type_definitions
-                    .into_iter()
-                    .map(|x| regex::Regex::new(&x).map(Into::into))
-                    .collect::<Result<Vec<Regex>, _>>()?;
+                config.except_custom_type_definitions =
+                    strings_to_regexes(&args.except_custom_type_definitions)?
             }
 
             if args.no_generate_missing_sql_type_definitions {
@@ -414,11 +445,8 @@ impl Config {
             }
 
             if !args.pg_domains_as_custom_types.is_empty() {
-                config.pg_domains_as_custom_types = args
-                    .pg_domains_as_custom_types
-                    .into_iter()
-                    .map(|x| regex::Regex::new(&x).map(Into::into))
-                    .collect::<Result<Vec<Regex>, _>>()?;
+                config.pg_domains_as_custom_types =
+                    strings_to_regexes(&args.pg_domains_as_custom_types)?;
             }
 
             if let Some(&last_val) = args.sqlite_integer_primary_key_is_bigint.last()
@@ -426,9 +454,41 @@ impl Config {
             {
                 config.sqlite_integer_primary_key_is_bigint = Some(true);
             }
+
+            if let Some(composite_types_generate) = args.composite_types_generate.first() {
+                config.composite_types.generate = *composite_types_generate;
+            }
+            if !args.composite_types_include.is_empty() {
+                config.composite_types.include = strings_to_regexes(&args.composite_types_include)?;
+            }
+            if !args.composite_types_exclude.is_empty() {
+                config.composite_types.exclude = strings_to_regexes(&args.composite_types_exclude)?;
+            }
+            if !args.composite_types_non_null_fields.is_empty() {
+                config.composite_types.non_null_fields =
+                    strings_to_regexes(&args.composite_types_non_null_fields)?;
+            }
         }
         Ok(self)
     }
+}
+
+/// Convert the range of strings to regexes.
+fn strings_with_indices_to_regexes(
+    boundary: (Bound<usize>, Bound<usize>),
+    args_with_indices: &BTreeMap<usize, &String>,
+) -> Result<Vec<Regex>, regex::Error> {
+    args_with_indices
+        .range(boundary)
+        .map(|(_, v)| regex::Regex::new(v).map(Into::into))
+        .collect()
+}
+
+/// Convert a slice of strings to regexes.
+fn strings_to_regexes(args: &[String]) -> Result<Vec<Regex>, regex::Error> {
+    args.iter()
+        .map(|x| regex::Regex::new(x).map(Into::into))
+        .collect()
 }
 
 #[derive(Default, Clone, Debug)]
@@ -525,6 +585,8 @@ pub struct PrintSchema {
     pub custom_enum_derives: Option<BTreeSet<String>>,
     #[serde(default)]
     pub generate_rust_enum_definitions: Option<bool>,
+    #[serde(default)]
+    pub composite_types: CompositeTypeConfig,
 }
 
 impl PrintSchema {
@@ -689,4 +751,34 @@ impl<'de> Deserialize<'de> for Filtering {
 
         deserializer.deserialize_map(FilteringVisitor)
     }
+}
+
+/// Configurations for how to generate `composite_type!` macro definitions for composite types
+/// detected in the database. Only supported for Postgres DB backends.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CompositeTypeConfig {
+    /// Whether to generate `composite_type!` macro definitions.
+    #[serde(default)]
+    pub generate: bool,
+    /// Only consider composite types that match one of these regexes. If no regexes are provided,
+    /// all composite types will be included.
+    ///
+    /// The regex will be compared against a type's schema and name, e.g. `schema.name`, or just
+    /// the type's name if the type's schema is the same as the default schema in the database.
+    #[serde(default)]
+    pub include: Vec<Regex>,
+    /// Exclude composite types that match one of these regexes.
+    ///
+    /// The regex will be compared against a type's schema and name, e.g. `schema.name`, or just
+    /// the type's name if the type's schema is the same as the default schema in the database.
+    #[serde(default)]
+    pub exclude: Vec<Regex>,
+    /// Regexes of composite type fields to override as non-null.
+    ///
+    /// Postgres does not support adding constraints, e.g. `NOT NULL`, to composite type fields.
+    /// Therefore, by default, all composite type fields are marked nullable. If a field is known
+    /// to be non-null, a regex matching the field can be provided to this config. This will
+    /// override the default behavior and the field will be marked non-null.
+    #[serde(default)]
+    pub non_null_fields: Vec<Regex>,
 }

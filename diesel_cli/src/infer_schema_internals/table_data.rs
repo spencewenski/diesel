@@ -111,6 +111,13 @@ pub struct ViewData {
     pub sql_definition: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct CompositeTypeData {
+    pub name: TableName,
+    pub field_data: Vec<ColumnDefinition>,
+    pub comment: Option<String>,
+}
+
 mod serde_impls {
     extern crate serde;
 
